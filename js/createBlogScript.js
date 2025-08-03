@@ -20,16 +20,19 @@ form.addEventListener('submit', async (event) => {
 	const author = auth.currentUser.displayName
 	try {
 		const docRef = await addDoc(collection(db, "blogs"), {
-			title, subline, body, author
+			title, subline, body, author, createdAt: new Date()
 		})
 
 		const indexRef = await addDoc(collection(db, "blogsRef"), {
-			title, subline, author, blogId: docRef.id
+			title, subline, author, blogId: docRef.id, createdAt: new Date()
 		})
 		
+		alert('Blog created successfully!')
+		window.location.href = 'index.html'
 
 	} catch (error) {
 		console.log(error)
+		alert('Error creating blog. Please try again.')
 	}
 
 })

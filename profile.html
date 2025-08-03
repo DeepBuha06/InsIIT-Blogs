@@ -77,6 +77,29 @@
                 </div>
             </div>
         </div>
+
+        <div class="my-blogs-section">
+            <div class="blogs-header">
+                <h2>My Blogs</h2>
+                <div class="search-container">
+                    <input type="text" id="blogSearch" placeholder="Search my blogs..." class="search-input">
+                    <button id="clearSearch" class="clear-search-btn" style="display: none;">Clear</button>
+                </div>
+            </div>
+            
+            <div id="blogsList" class="blogs-list">
+                <div class="loading-blogs">
+                    <div class="loading-spinner"></div>
+                    <p>Loading your blogs...</p>
+                </div>
+            </div>
+            
+            <div id="noBlogsMessage" class="no-blogs-message" style="display: none;">
+                <p>You haven't written any blogs yet.</p>
+                <a href="createBlog.html" class="create-blog-btn">Create Your First Blog</a>
+            </div>
+        </div>
+        </div>
     </div>
 
     <div id="loadingOverlay" class="loading-overlay" style="display: none;">

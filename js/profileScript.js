@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc, setDoc } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js'
+import { doc, getDoc, updateDoc, setDoc, collection, query, where, getDocs, orderBy } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js'
 import { auth, db } from './firebaseSetup.js'
 
 // DOM elements
@@ -16,9 +16,17 @@ const blogsCountElement = document.getElementById('blogsCount')
 const memberSinceElement = document.getElementById('memberSince')
 const loadingOverlay = document.getElementById('loadingOverlay')
 
+// Blog list elements
+const blogsList = document.getElementById('blogsList')
+const blogSearch = document.getElementById('blogSearch')
+const clearSearch = document.getElementById('clearSearch')
+const noBlogsMessage = document.getElementById('noBlogsMessage')
+
 // State variables
 let originalData = {}
 let isEditing = false
+let userBlogs = []
+let filteredBlogs = []
 
 // Initialize profile page
 async function initializeProfile() {
@@ -79,8 +87,11 @@ async function loadUserProfile(userId) {
                 })
             }
             
-            // TODO: Load blogs count (you can implement this when you have blogs collection)
-            blogsCountElement.textContent = '0'
+            // Load user's blogs
+            await loadUserBlogs(userId)
+            
+            // Update blogs count
+            blogsCountElement.textContent = userBlogs.length.toString()
             
         } else {
             console.error('User profile not found for ID:', userId)
@@ -107,6 +118,199 @@ async function loadUserProfile(userId) {
         alert('Error loading profile. Please try again.')
     }
 }
+
+// Load user's blogs
+async function loadUserBlogs(userId) {
+    try {
+        // Query blogs where author matches the user's display name
+        const blogsQuery = query(
+            collection(db, "blogs"),
+            where("author", "==", originalData.displayName),
+            orderBy("createdAt", "desc")
+        )
+        
+        const querySnapshot = await getDocs(blogsQuery)
+        userBlogs = []
+        
+        querySnapshot.forEach((doc) => {
+            const blogData = doc.data()
+            userBlogs.push({
+                id: doc.id,
+                ...blogData
+            })
+        })
+        
+        filteredBlogs = [...userBlogs]
+        displayBlogs()
+        
+    } catch (error) {
+        console.error('Error loading blogs:', error)
+        // If ordering fails, try without orderBy
+        try {
+            const blogsQuery = query(
+                collection(db, "blogs"),
+                where("author", "==", originalData.displayName)
+            )
+            
+            const querySnapshot = await getDocs(blogsQuery)
+            userBlogs = []
+            
+            querySnapshot.forEach((doc) => {
+                const blogData = doc.data()
+                userBlogs.push({
+                    id: doc.id,
+                    ...blogData
+                })
+            })
+            
+            // Sort by date manually
+            userBlogs.sort((a, b) => {
+                const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0)
+                const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0)
+                return dateB - dateA
+            })
+            
+            filteredBlogs = [...userBlogs]
+            displayBlogs()
+            
+        } catch (fallbackError) {
+            console.error('Fallback error loading blogs:', fallbackError)
+            showNoBlogsMessage()
+        }
+    }
+}
+
+// Display blogs
+function displayBlogs() {
+    if (filteredBlogs.length === 0) {
+        showNoBlogsMessage()
+        return
+    }
+    
+    const blogsHTML = filteredBlogs.map(blog => {
+        const date = blog.createdAt ? 
+            (blog.createdAt.toDate ? blog.createdAt.toDate() : new Date(blog.createdAt)) : 
+            new Date()
+        
+        return `
+            <div class="blog-item" data-blog-id="${blog.id}">
+                <div class="blog-title">${blog.title}</div>
+                <div class="blog-subline">${blog.subline || ''}</div>
+                <div class="blog-meta">
+                    <span class="blog-date">${date.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    })}</span>
+                    <div class="blog-actions">
+                        <button class="blog-action-btn" onclick="viewBlog('${blog.id}')">View</button>
+                        <button class="blog-action-btn edit" onclick="editBlog('${blog.id}')">Edit</button>
+                        <button class="blog-action-btn delete" onclick="deleteBlog('${blog.id}')">Delete</button>
+                    </div>
+                </div>
+            </div>
+        `
+    }).join('')
+    
+    blogsList.innerHTML = blogsHTML
+    noBlogsMessage.style.display = 'none'
+}
+
+// Show no blogs message
+function showNoBlogsMessage() {
+    blogsList.innerHTML = ''
+    noBlogsMessage.style.display = 'block'
+}
+
+// Search blogs
+function searchBlogs(query) {
+    if (!query.trim()) {
+        filteredBlogs = [...userBlogs]
+        displayBlogs()
+        return
+    }
+    
+    const searchTerm = query.toLowerCase()
+    const titleMatches = []
+    const contentMatches = []
+    
+    userBlogs.forEach(blog => {
+        const title = blog.title.toLowerCase()
+        const subline = (blog.subline || '').toLowerCase()
+        const body = (blog.body || '').toLowerCase()
+        
+        // Check title first
+        if (title.includes(searchTerm)) {
+            titleMatches.push({
+                ...blog,
+                matchType: 'title',
+                matchText: blog.title
+            })
+        }
+        // Check subline and body
+        else if (subline.includes(searchTerm) || body.includes(searchTerm)) {
+            contentMatches.push({
+                ...blog,
+                matchType: 'content',
+                matchText: subline.includes(searchTerm) ? blog.subline : blog.body
+            })
+        }
+    })
+    
+    // Combine results with title matches first
+    filteredBlogs = [...titleMatches, ...contentMatches]
+    displayBlogs()
+    
+    // Highlight search terms
+    highlightSearchTerms(searchTerm)
+}
+
+// Highlight search terms
+function highlightSearchTerms(searchTerm) {
+    const blogItems = blogsList.querySelectorAll('.blog-item')
+    
+    blogItems.forEach(item => {
+        const title = item.querySelector('.blog-title')
+        const subline = item.querySelector('.blog-subline')
+        
+        if (title) {
+            title.innerHTML = highlightText(title.textContent, searchTerm)
+        }
+        if (subline) {
+            subline.innerHTML = highlightText(subline.textContent, searchTerm)
+        }
+    })
+}
+
+// Highlight text function
+function highlightText(text, searchTerm) {
+    if (!searchTerm) return text
+    
+    const regex = new RegExp(`(${searchTerm})`, 'gi')
+    return text.replace(regex, '<span class="highlight">$1</span>')
+}
+
+// Blog action functions
+function viewBlog(blogId) {
+    window.location.href = `viewBlog.html?blogId=${blogId}`
+}
+
+function editBlog(blogId) {
+    // TODO: Implement edit functionality
+    alert('Edit functionality coming soon!')
+}
+
+function deleteBlog(blogId) {
+    if (confirm('Are you sure you want to delete this blog?')) {
+        // TODO: Implement delete functionality
+        alert('Delete functionality coming soon!')
+    }
+}
+
+// Make functions globally available
+window.viewBlog = viewBlog
+window.editBlog = editBlog
+window.deleteBlog = deleteBlog
 
 // Enable edit mode
 function enableEditMode() {
@@ -252,6 +456,25 @@ document.addEventListener('DOMContentLoaded', () => {
     })
     
     avatarInput.addEventListener('change', handleAvatarUpload)
+    
+    // Blog search functionality
+    blogSearch.addEventListener('input', (event) => {
+        const query = event.target.value
+        searchBlogs(query)
+        
+        // Show/hide clear button
+        if (query.trim()) {
+            clearSearch.style.display = 'inline-block'
+        } else {
+            clearSearch.style.display = 'none'
+        }
+    })
+    
+    clearSearch.addEventListener('click', () => {
+        blogSearch.value = ''
+        searchBlogs('')
+        clearSearch.style.display = 'none'
+    })
     
     // Keyboard shortcuts
     document.addEventListener('keydown', (event) => {
